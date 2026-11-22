@@ -36,6 +36,9 @@ export default function JoinTripModal({
   );
   const isTripCreator = currentAccount && trip.creator && trip.creator.toLowerCase() === currentAccount.toLowerCase();
 
+  // หากเป็นหัวหน้าทริปหรือเป็นสมาชิกอยู่แล้ว จะไม่แสดง Modal คำเชิญนี้โดยเด็ดขาด
+  if (isAlreadyMember || isTripCreator) return null;
+
   const handleConfirm = async () => {
     if (!currentAccount) {
       connectWallet();

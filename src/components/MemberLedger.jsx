@@ -10,10 +10,16 @@ export default function MemberLedger({ trip, currentAccount, onQuickPay, onOpenI
 
   const isDark = theme === 'dark';
   const rawMembers = trip.members || [];
+  const droppedOutList = (trip.droppedOutMembers || []).map(a => a.toLowerCase());
   // สมาชิกที่ยังคงอยู่ในทริป (ไม่รวมคนที่ถอนตัวออกไปแล้ว)
   const members = useMemo(() => {
-    return rawMembers.filter(m => !m.hasDroppedOut && m.status !== 'dropped');
-  }, [rawMembers]);
+    return rawMembers.filter(m => 
+      m && m.address &&
+      !droppedOutList.includes(m.address.toLowerCase()) &&
+      !m.hasDroppedOut &&
+      m.status !== 'dropped'
+    );
+  }, [rawMembers, droppedOutList]);
 
   const totalSpent = parseFloat(trip.totalSpent || "0");
   const totalCollected = parseFloat(trip.totalCollected || "0.0001");
@@ -71,18 +77,20 @@ export default function MemberLedger({ trip, currentAccount, onQuickPay, onOpenI
             </span>
           </div>
 
-          {/* Invite Friends Button */}
-          <button
-            onClick={handleShare}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors shrink-0 whitespace-nowrap ${
-              isDark
-                ? 'bg-[#431407] text-[#FB923C] border-[#9A3412] hover:bg-[#5a1b09]'
-                : 'bg-[#FFEDD5] text-[#C2410C] border-[#FED7AA] hover:bg-[#FFE4C4]'
-            }`}
-          >
-            {copiedLink ? <Check className="w-3.5 h-3.5 text-[#10B981]" /> : <Share2 className="w-3.5 h-3.5" />}
-            <span>{copiedLink ? 'คัดลอกลิงก์แล้ว' : 'ชวนเพื่อนร่วมทริป'}</span>
-          </button>
+          {/* Invite Friends Button (ซ่อนหากทริปถูกยกเลิกแล้ว) */}
+          {!trip.isCancelled && onOpenInvite && (
+            <button
+              onClick={handleShare}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors shrink-0 whitespace-nowrap ${
+                isDark
+                  ? 'bg-[#431407] text-[#FB923C] border-[#9A3412] hover:bg-[#5a1b09]'
+                  : 'bg-[#FFEDD5] text-[#C2410C] border-[#FED7AA] hover:bg-[#FFE4C4]'
+              }`}
+            >
+              {copiedLink ? <Check className="w-3.5 h-3.5 text-[#10B981]" /> : <Share2 className="w-3.5 h-3.5" />}
+              <span>{copiedLink ? 'คัดลอกลิงก์แล้ว' : 'ชวนเพื่อนร่วมทริป'}</span>
+            </button>
+          )}
         </div>
 
         <p className={`text-xs leading-relaxed ${isDark ? 'text-[#A8A29E]' : 'text-[#78716C]'}`}>
@@ -298,7 +306,7 @@ export default function MemberLedger({ trip, currentAccount, onQuickPay, onOpenI
 
                     {/* ดำเนินการ */}
                     <td className="py-3.5 px-3.5 text-right">
-                      {isMe && (m.status === 'overdue' || m.status === 'grace') ? (
+                      {isMe && !trip.isCancelled && onQuickPay && (m.status === 'overdue' || m.status === 'grace') ? (
                         <button
                           onClick={() => onQuickPay("0.04")}
                           className="px-3 py-1 rounded-lg bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold shadow-xs transition-colors"

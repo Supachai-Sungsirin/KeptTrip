@@ -184,12 +184,15 @@ export default function App() {
   // หากยังไม่ได้เป็นสมาชิกและไม่ใช่หัวหน้าทริป ให้เด้ง Modal ถามยืนยันการเข้าร่วมทริปทันที
   useEffect(() => {
     if (isInviteArrival && currentTrip && currentTrip.isActive && !currentTrip.isCancelled) {
-      const isCreator = account && currentTrip.creator && currentTrip.creator.toLowerCase() === account.toLowerCase();
-      const isMember = account && (currentTrip.members || []).some(
+      if (!account) return;
+      const isCreator = currentTrip.creator && currentTrip.creator.toLowerCase() === account.toLowerCase();
+      const isMember = (currentTrip.members || []).some(
         m => m.address && m.address.toLowerCase() === account.toLowerCase()
       );
       if (!isCreator && !isMember) {
         setIsJoinOpen(true);
+      } else {
+        setIsJoinOpen(false);
       }
     }
   }, [isInviteArrival, currentTrip, account]);
@@ -267,6 +270,7 @@ export default function App() {
           // Query Real On-Chain Events & Members from Sepolia Contract Logs
           const onChainEvents = [];
           const membersMap = new Map();
+          const droppedOutSet = new Set();
 
           const creatorKey = summary.creator.toLowerCase();
           const creatorNickname = savedMemberNames[creatorKey];
@@ -388,7 +392,9 @@ export default function App() {
                 time: "บันทึกบน Sepolia",
                 txHash: log.transactionHash
               });
-              membersMap.delete(parsed.args.member.toLowerCase());
+              const droppedAddr = parsed.args.member.toLowerCase();
+              droppedOutSet.add(droppedAddr);
+              membersMap.delete(droppedAddr);
             }
 
             // 5. ดึงประวัติ TripCancelled (ยกเลิกทริป)
@@ -430,6 +436,8 @@ export default function App() {
             totalCollected: collectedEth,
             totalSpent: spentEth,
             unspentBalance: unspentEth,
+            droppedOutMembers: Array.from(droppedOutSet),
+            userHasDroppedOut: account ? droppedOutSet.has(account.toLowerCase()) : false,
             activeMembersCount: membersMap.size || Number(summary.activeMembersCount),
             milestoneCount: mCount,
             isActive: summary.isActive,
@@ -480,12 +488,13 @@ export default function App() {
           loadedTrips.forEach(t => {
             const k = Number(t.id);
             const existing = map.get(k);
-            let mergedMembers = t.members || [];
+            const droppedSet = new Set((t.droppedOutMembers || []).map(a => a.toLowerCase()));
+            let mergedMembers = (t.members || []).filter(m => m && m.address && !droppedSet.has(m.address.toLowerCase()));
             if (existing && Array.isArray(existing.members)) {
               const localOnlyMembers = existing.members.filter(em =>
                 em && em.address &&
-                !mergedMembers.some(mm => mm.address && mm.address.toLowerCase() === em.address.toLowerCase()) &&
-                !(t.droppedOutMembers || []).some(da => da.toLowerCase() === em.address.toLowerCase())
+                !droppedSet.has(em.address.toLowerCase()) &&
+                !mergedMembers.some(mm => mm.address && mm.address.toLowerCase() === em.address.toLowerCase())
               );
               mergedMembers = [...mergedMembers, ...localOnlyMembers];
             }
@@ -494,7 +503,8 @@ export default function App() {
               ...(existing || {}),
               ...t,
               members: mergedMembers,
-              activeMembersCount: Math.max(mergedMembers.length, t.activeMembersCount || 0)
+              droppedOutMembers: t.droppedOutMembers,
+              activeMembersCount: mergedMembers.length
             });
           });
 
@@ -1231,22 +1241,6 @@ export default function App() {
     syncOnChainTrips();
   };
 
-  // 10. ลบทริปที่สิ้นสุดแล้วหรือถูกยกเลิกออกจากรายการ
-  const handleDeleteTrip = (tripId) => {
-    setTrips(prev => {
-      const remaining = prev.filter(t => t.id !== tripId);
-      return remaining;
-    });
-    showToast("ลบทริปออกจากรายการของคุณเรียบร้อยแล้ว");
-    if (selectedTripId === tripId) {
-      setCurrentView('hub');
-      const remaining = trips.filter(t => t.id !== tripId);
-      if (remaining.length > 0) {
-        setSelectedTripId(remaining[0].id);
-      }
-    }
-  };
-
   // 11. เข้าร่วมทริปเมื่อได้รับคำเชิญ (Join Trip via Invitation)
   const handleJoinTrip = async (tripId, memberName, contributeAmount) => {
     if (!account) {
@@ -1436,7 +1430,6 @@ export default function App() {
             currentAccount={account}
             onSelectTrip={handleSelectTrip}
             onOpenCreateTrip={() => setIsCreateOpen(true)}
-            onDeleteTrip={handleDeleteTrip}
             theme={theme}
           />
         ) : currentTrip ? (
@@ -1457,7 +1450,6 @@ export default function App() {
             onApproveMilestone={handleApproveMilestone}
             onQuickPay={handleQuickPay}
             onOpenInvite={() => setIsInviteOpen(true)}
-            onDeleteTrip={handleDeleteTrip}
             onOpenJoinTrip={() => setIsJoinOpen(true)}
           />
         ) : (

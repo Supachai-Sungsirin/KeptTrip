@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
 import {
   ArrowDownLeft, AlertCircle, CheckCircle2, Clock, Users,
-  ShieldCheck, ArrowRight, ExternalLink, RefreshCw, FileText, ChevronRight, Trash2, Ban, UserPlus
+  ShieldCheck, ArrowRight, ExternalLink, RefreshCw, FileText, ChevronRight, Ban, UserPlus
 } from 'lucide-react';
 
 import MemberLedger from './MemberLedger';
 import MilestoneList from './MilestoneList';
 import TransparencyTable from './TransparencyTable';
 import SocialNoticeBanner from './SocialNoticeBanner';
-import ConfirmModal from './ConfirmModal';
 
 export default function RedesignedTripDetail({
   trip,
@@ -23,11 +22,9 @@ export default function RedesignedTripDetail({
   onApproveMilestone,
   onQuickPay,
   onOpenInvite,
-  onDeleteTrip,
   onOpenJoinTrip
 }) {
   const [activeTab, setActiveTab] = useState('overview'); // overview | treasury | rules
-  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
 
   if (!trip) return null;
 
@@ -55,21 +52,25 @@ export default function RedesignedTripDetail({
   }
 
   // Count milestones & members
+  // กรองสมาชิกที่ถอนตัวออกอย่างเด็ดขาด เพื่อไม่ให้นับในรายชื่อและไม่นำมาคิดสัดส่วนโหวต
+  const droppedOutList = (trip.droppedOutMembers || []).map(a => a.toLowerCase());
+  const activeMembers = (trip.members || []).filter(m => 
+    m && m.address && !droppedOutList.includes(m.address.toLowerCase()) && !m.hasDroppedOut && m.status !== 'dropped'
+  );
   const milestones = trip.milestones || [];
-  const members = trip.members || [];
   const quorumPercent = 50;
-  const totalMembers = members.length || trip.activeMembersCount || 1;
+  const totalMembers = activeMembers.length || trip.activeMembersCount || 1;
   const quorumThreshold = Math.floor(totalMembers / 2) + 1;
 
   // Dynamic user membership calculation
   const isTripCreator = currentAccount && trip.creator && trip.creator.toLowerCase() === currentAccount.toLowerCase();
-  const isMember = currentAccount && members.some(
+  const isMember = currentAccount && activeMembers.some(
     m => m.address && m.address.toLowerCase() === currentAccount.toLowerCase()
   );
 
-  const myMember = members.find(
+  const myMember = activeMembers.find(
     m => currentAccount && m.address && m.address.toLowerCase() === currentAccount.toLowerCase()
-  ) || (isTripCreator ? members.find(m => trip.creator && m.address && m.address.toLowerCase() === trip.creator.toLowerCase()) : null) || members[0];
+  ) || (isTripCreator ? activeMembers.find(m => trip.creator && m.address && m.address.toLowerCase() === trip.creator.toLowerCase()) : null) || activeMembers[0];
 
   const myContributed = parseFloat(myMember?.contributed || "0");
   const expectedShareNum = parseFloat(
@@ -87,15 +88,24 @@ export default function RedesignedTripDetail({
   );
   const paidMilestones = milestones.filter(m => m.isPaid);
 
+  const isCancelVotingActive = (trip.cancelVotesCount || 0) > 0 && !trip.isCancelled;
+
   // Dynamic Action Required banner logic
   let actionTitle = '';
   let actionDesc = '';
   let isActionUrgent = false;
 
-  if (!isMember && !isTripCreator) {
+  if (trip.isCancelled) {
+    actionTitle = 'ทริปนี้ถูกยกเลิกอย่างเป็นทางการแล้ว';
+    actionDesc = 'ระบบปิดรับการสมทบเงิน การเบิกจ่าย และการลงมติทั้งหมด สมาชิกสามารถตรวจสอบประวัติการเงิน หรือกดขอรับเงินคืนคงเหลือตามสัดส่วน (Claim Refund)';
+  } else if (!isMember && !isTripCreator) {
     isActionUrgent = true;
     actionTitle = 'คุณได้รับคำเชิญเข้าร่วมทริปนี้';
     actionDesc = 'กดปุ่ม "ตอบรับและเข้าร่วมทริป" เพื่อลงทะเบียนเป็นสมาชิก ร่วมสมทบงบประมาณ และมีสิทธิ์ออกเสียงโหวต';
+  } else if (isCancelVotingActive && !trip.hasVotedCancel) {
+    isActionUrgent = true;
+    actionTitle = `มีการเปิดโหวตขอยกเลิกทริปนี้ (${trip.cancelVotesCount}/${quorumThreshold} เสียง)`;
+    actionDesc = 'มีสมาชิกลงคะแนนขอยกเลิกทริป หากมติเห็นชอบเกินกึ่งหนึ่ง (>50%) กองกลางจะปิดและเปิดให้สมาชิกทุกคนรับเงินคงเหลือคืนตามสัดส่วน';
   } else if (pendingVoteMilestone) {
     isActionUrgent = true;
     const mReqVotes = pendingVoteMilestone.requiredVotes || quorumThreshold;
@@ -120,6 +130,83 @@ export default function RedesignedTripDetail({
 
   return (
     <div className="space-y-6 animate-fade-in">
+
+      {/* 0.1 แบนเนอร์เปิดโหวตยกเลิกทริป (แสดงขึ้นมาให้เห็นทันทีโดยไม่ต้องเข้าแท็บ 3) */}
+      {isCancelVotingActive && (
+        <div className={`p-4 sm:p-5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md ${
+          isDark
+            ? 'bg-gradient-to-r from-amber-950/70 via-[#2A1505] to-[#1C1917] border-amber-500/60 text-[#F5F5F4]'
+            : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-300 text-stone-900'
+        }`}>
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-amber-500 text-black flex items-center justify-center shrink-0 shadow-sm font-bold">
+              <AlertCircle className="w-6 h-6 text-black" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="font-bold text-sm sm:text-base text-amber-500 dark:text-amber-400">
+                  มีการเปิดโหวตขอยกเลิกทริปนี้
+                </h4>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono font-bold border border-amber-500/40">
+                  {trip.cancelVotesCount} / {quorumThreshold} เสียง
+                </span>
+              </div>
+              <p className={`text-xs mt-1 leading-relaxed ${isDark ? 'text-[#A8A29E]' : 'text-stone-600'}`}>
+                สมาชิกลงคะแนนขอยกเลิกทริป หากคะแนนโหวตเกินกึ่งหนึ่ง (&gt;50%) ระบบจะยกเลิกทริปและเปิดให้สมาชิกทุกคนรับเงินคงเหลือ ({trip.unspentBalance || '0'} ETH) คืนตามสัดส่วน
+              </p>
+            </div>
+          </div>
+
+          <div className="shrink-0 w-full sm:w-auto">
+            {trip.hasVotedCancel ? (
+              <div className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-900/40 border border-amber-700/60 text-amber-300 text-xs font-semibold">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>คุณลงคะแนนขอยกเลิกแล้ว</span>
+              </div>
+            ) : (
+              <button
+                onClick={onOpenCancelTrip}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-black text-xs sm:text-sm font-bold shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+              >
+                <AlertCircle className="w-4 h-4" />
+                <span>ร่วมลงคะแนนโหวตยกเลิกทริป</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 0.2 แบนเนอร์แจ้งเตือนทริปที่ถูกยกเลิกแล้ว */}
+      {trip.isCancelled && (
+        <div className={`p-4 sm:p-5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm ${
+          isDark
+            ? 'bg-rose-950/40 border-rose-900/60 text-rose-200'
+            : 'bg-rose-50 border-rose-200 text-rose-900'
+        }`}>
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-sm font-bold">
+              <Ban className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-sm sm:text-base">
+                ทริปนี้ถูกยกเลิกอย่างเป็นทางการแล้ว
+              </h4>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-rose-300/80' : 'text-rose-700'}`}>
+                ปิดระบบการสมทบเงิน การเบิกจ่าย และการแชร์ทั้งหมด สมาชิกสามารถตรวจสอบประวัติการเงิน หรือกดขอรับเงินคืนคงเหลือตามสัดส่วนได้
+              </p>
+            </div>
+          </div>
+
+          {parseFloat(trip.unspentBalance || "0") > 0 && !trip.hasClaimedRefund && (
+            <button
+              onClick={onClaimRefund || onOpenCancelTrip}
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-bold shadow-md transition-all shrink-0 cursor-pointer"
+            >
+              ขอรับเงินคืนตามสัดส่วน (Claim Refund)
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Guest / Invited Friend Join Banner */}
       {!isMember && !isTripCreator && trip.isActive && !trip.isCancelled && (
@@ -212,11 +299,11 @@ export default function RedesignedTripDetail({
             <p className={`text-xs sm:text-sm ${
               isDark ? 'text-[#A8A29E]' : 'text-[#78716C]'
             }`}>
-              {trip.dates || '15 ธ.ค. - 22 ธ.ค. 2026'} • สมาชิก {members.length} คน • ฉันทามติ Multisig: เสียงเห็นชอบเกินกึ่งหนึ่ง (&gt;50%)
+              {trip.dates || '15 ธ.ค. - 22 ธ.ค. 2026'} • สมาชิก {activeMembers.length} คน • ฉันทามติ Multisig: เสียงเห็นชอบเกินกึ่งหนึ่ง (&gt;50%)
             </p>
           </div>
 
-          {/* Action Buttons: Contribute Funds or Delete Trip */}
+          {/* Action Buttons: Contribute Funds */}
           <div className="flex items-center gap-3 flex-wrap">
             {trip.isActive && !trip.isCompleted && !trip.isCancelled && !trip.userHasDroppedOut && (
               <button
@@ -228,19 +315,12 @@ export default function RedesignedTripDetail({
               </button>
             )}
 
-            {/* Delete button for completed or cancelled trips */}
-            {(!trip.isActive || trip.isCompleted || trip.isCancelled || trip.userHasDroppedOut) && onDeleteTrip && (
-              <button
-                onClick={() => setIsConfirmDeleteOpen(true)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-semibold transition-all ${
-                  isDark
-                    ? 'border-rose-900/60 bg-rose-950/30 text-rose-300 hover:bg-rose-950/60'
-                    : 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
-                }`}
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>ลบทริปนี้</span>
-              </button>
+            {trip.isCancelled && (
+              <span className={`px-3 py-1.5 rounded-xl text-xs font-semibold border ${
+                isDark ? 'bg-rose-950/40 text-rose-300 border-rose-900/60' : 'bg-rose-100 text-rose-800 border-rose-200'
+              }`}>
+                ทริปยกเลิกแล้ว
+              </span>
             )}
           </div>
 
@@ -469,7 +549,13 @@ export default function RedesignedTripDetail({
 
               {/* Action Buttons */}
               <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
-                {pendingVoteMilestone ? (
+                {trip.isCancelled ? (
+                  <div className={`w-full py-3 px-4 rounded-xl text-center text-xs sm:text-sm font-semibold border ${
+                    isDark ? 'bg-rose-950/20 border-rose-900/40 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-800'
+                  }`}>
+                    ทริปถูกยกเลิกแล้ว • ปิดการทำธุรกรรมทั้งหมด (ดูประวัติการเงินได้อย่างเดียว)
+                  </div>
+                ) : pendingVoteMilestone ? (
                   <button
                     onClick={() => setActiveTab('treasury')}
                     className="w-full sm:w-auto flex-1 py-3 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-[0.99] shadow-sm"
@@ -490,7 +576,7 @@ export default function RedesignedTripDetail({
                     onClick={() => setActiveTab('treasury')}
                     className="w-full sm:w-auto flex-1 py-3 px-4 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-[0.99] shadow-sm"
                   >
-                    <span>ดูประวัติการเบิกจ่าย & โหวต</span>
+                    <span>ดูประวัติการเบิกจ่าย & การเงิน</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 )}
@@ -503,7 +589,7 @@ export default function RedesignedTripDetail({
                       : 'border border-[#D6D3D1] hover:bg-stone-50 text-[#1C1917]'
                   }`}
                 >
-                  ดูบัญชีรายชื่อสมาชิก
+                  {trip.isCancelled ? 'ดูประวัติการเงิน & สมาชิก' : 'ดูบัญชีรายชื่อสมาชิก'}
                 </button>
               </div>
 
@@ -636,8 +722,8 @@ export default function RedesignedTripDetail({
               <MemberLedger
                 trip={trip}
                 currentAccount={currentAccount}
-                onQuickPay={onQuickPay}
-                onOpenInvite={onOpenInvite}
+                onQuickPay={trip.isCancelled ? null : onQuickPay}
+                onOpenInvite={trip.isCancelled ? null : onOpenInvite}
                 theme={theme}
               />
             </div>
@@ -647,10 +733,10 @@ export default function RedesignedTripDetail({
               <MilestoneList
                 trip={trip}
                 currentAccount={currentAccount}
-                onOpenAddMilestone={onOpenAddMilestone}
-                onRequestRelease={onRequestRelease}
-                onApproveMilestone={onApproveMilestone}
-                onOpenContribute={onQuickPay}
+                onOpenAddMilestone={trip.isCancelled ? null : onOpenAddMilestone}
+                onRequestRelease={trip.isCancelled ? null : onRequestRelease}
+                onApproveMilestone={trip.isCancelled ? null : onApproveMilestone}
+                onOpenContribute={trip.isCancelled ? null : onQuickPay}
                 theme={theme}
               />
             </div>
@@ -718,27 +804,37 @@ export default function RedesignedTripDetail({
               </p>
               
               <div className="flex items-center gap-3 pt-2">
-                <button
-                  onClick={onOpenDropout}
-                  className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold border transition-colors ${
-                    isDark
-                      ? 'border-[#44403C] hover:bg-rose-950/30 text-rose-400 hover:border-rose-800'
-                      : 'border-[#D6D3D1] hover:bg-rose-50 text-rose-700 hover:border-rose-200'
-                  }`}
-                >
-                  ถอนตัวกลางคัน (Dropout)
-                </button>
+                {!trip.isCancelled ? (
+                  <>
+                    <button
+                      onClick={onOpenDropout}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold border transition-colors ${
+                        isDark
+                          ? 'border-[#44403C] hover:bg-rose-950/30 text-rose-400 hover:border-rose-800'
+                          : 'border-[#D6D3D1] hover:bg-rose-50 text-rose-700 hover:border-rose-200'
+                      }`}
+                    >
+                      ถอนตัวกลางคัน (Dropout)
+                    </button>
 
-                <button
-                  onClick={onOpenCancelTrip}
-                  className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold border transition-colors ${
-                    isDark
-                      ? 'border-[#44403C] hover:bg-[#292524] text-[#F5F5F4]'
-                      : 'border-[#D6D3D1] hover:bg-stone-50 text-[#1C1917]'
-                  }`}
-                >
-                  ขอยกเลิกระงับทริป
-                </button>
+                    <button
+                      onClick={onOpenCancelTrip}
+                      className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-semibold border transition-colors ${
+                        isDark
+                          ? 'border-[#44403C] hover:bg-[#292524] text-[#F5F5F4]'
+                          : 'border-[#D6D3D1] hover:bg-stone-50 text-[#1C1917]'
+                      }`}
+                    >
+                      ขอยกเลิกระงับทริป
+                    </button>
+                  </>
+                ) : (
+                  <div className={`w-full py-2.5 px-3 rounded-xl text-xs font-medium text-center border ${
+                    isDark ? 'border-rose-900/60 bg-rose-950/30 text-rose-400' : 'border-rose-200 bg-rose-50 text-rose-700'
+                  }`}>
+                    ทริปถูกยกเลิกแล้ว • ปิดการทำธุรกรรมทั้งหมด
+                  </div>
+                )}
               </div>
             </div>
 
@@ -746,23 +842,6 @@ export default function RedesignedTripDetail({
 
         </div>
       )}
-
-      {/* Confirm Delete Modal */}
-      <ConfirmModal
-        isOpen={isConfirmDeleteOpen}
-        onClose={() => setIsConfirmDeleteOpen(false)}
-        onConfirm={() => {
-          if (onDeleteTrip) {
-            onDeleteTrip(trip.id);
-          }
-        }}
-        title="ยืนยันการลบทริป"
-        message={`คุณต้องการลบทริป "${trip.tripName}" ออกจากรายการของคุณใช่หรือไม่?`}
-        confirmText="ลบทริป"
-        cancelText="ยกเลิก"
-        isDestructive={true}
-        theme={theme}
-      />
 
     </div>
   );

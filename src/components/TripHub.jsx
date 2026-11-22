@@ -1,19 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, ArrowRight, ShieldCheck, CheckCircle2, Clock, AlertTriangle, Users, Calendar, Trash2, Ban, LogOut, Compass } from 'lucide-react';
-import ConfirmModal from './ConfirmModal';
+import { Search, Plus, ArrowRight, ShieldCheck, CheckCircle2, Clock, AlertTriangle, Users, Calendar, Ban, LogOut, Compass } from 'lucide-react';
 
 export default function TripHub({
   trips = [],
   currentAccount,
   onSelectTrip,
   onOpenCreateTrip,
-  onDeleteTrip,
   theme = 'dark'
 }) {
   const [filter, setFilter] = useState('all'); // all | active | completed | cancelled
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyMyTrips, setShowOnlyMyTrips] = useState(true);
-  const [tripToDelete, setTripToDelete] = useState(null);
 
   const isDark = theme === 'dark';
   const userAddr = currentAccount ? currentAccount.toLowerCase() : null;
@@ -270,25 +267,6 @@ export default function TripHub({
                       </span>
                     ) : null}
                   </div>
-
-                  {/* Delete Button for completed or cancelled trips */}
-                  {isFinished && onDeleteTrip && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTripToDelete(trip);
-                      }}
-                      title="ลบทริปนี้ออกจากรายการของคุณ"
-                      className={`p-1.5 rounded-lg border transition-all flex items-center gap-1 text-[11px] font-medium ${
-                        isDark
-                          ? 'border-[#44403C] hover:bg-rose-950/40 text-stone-400 hover:text-rose-300 hover:border-rose-800'
-                          : 'border-stone-200 hover:bg-rose-50 text-stone-500 hover:text-rose-700 hover:border-rose-300'
-                      }`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">ลบทริป</span>
-                    </button>
-                  )}
                 </div>
 
                 {/* Title */}
@@ -455,23 +433,6 @@ export default function TripHub({
           )}
         </div>
       )}
-
-      {/* Custom Confirm Modal for Delete Trip */}
-      <ConfirmModal
-        isOpen={Boolean(tripToDelete)}
-        onClose={() => setTripToDelete(null)}
-        onConfirm={() => {
-          if (tripToDelete && onDeleteTrip) {
-            onDeleteTrip(tripToDelete.id);
-          }
-        }}
-        title="ยืนยันการลบทริป"
-        message={`คุณต้องการลบทริป "${tripToDelete?.tripName}" ออกจากหน้ารวมทริปของคุณใช่หรือไม่? ประวัติของทริปนี้จะถูกนำออกจากรายการของคุณ`}
-        confirmText="ลบทริป"
-        cancelText="ยกเลิก"
-        isDestructive={true}
-        theme={theme}
-      />
 
     </div>
   );

@@ -89,17 +89,19 @@ export default function MilestoneList({
           </div>
 
           {/* Dynamic Milestone Addition Button */}
-          <button
-            onClick={onOpenAddMilestone}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors shrink-0 whitespace-nowrap ${
-              isDark
-                ? 'bg-[#431407] text-[#FB923C] border-[#9A3412] hover:bg-[#5a1b09]'
-                : 'bg-[#FFEDD5] text-[#C2410C] border-[#FED7AA] hover:bg-[#FFE4C4]'
-            }`}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>เพิ่มรายการย่อย</span>
-          </button>
+          {!trip.isCancelled && onOpenAddMilestone && (
+            <button
+              onClick={onOpenAddMilestone}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors shrink-0 whitespace-nowrap ${
+                isDark
+                  ? 'bg-[#431407] text-[#FB923C] border-[#9A3412] hover:bg-[#5a1b09]'
+                  : 'bg-[#FFEDD5] text-[#C2410C] border-[#FED7AA] hover:bg-[#FFE4C4]'
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>เพิ่มรายการย่อย</span>
+            </button>
+          )}
         </div>
 
         <p className={`text-xs leading-relaxed ${isDark ? 'text-[#A8A29E]' : 'text-[#78716C]'}`}>
@@ -325,41 +327,51 @@ export default function MilestoneList({
 
                     {/* Action Buttons */}
                     <div className="flex items-center gap-2">
-                      {/* 1. ยื่นขอเบิกจ่าย */}
-                      {!m.isRequested && !m.isPaid && (
-                        <button
-                          onClick={() => openRequestModal(m)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold shadow-xs transition-colors"
-                        >
-                          <ArrowUpRight className="w-3.5 h-3.5" />
-                          <span>ยื่นขอเบิกเงิน</span>
-                        </button>
-                      )}
+                      {trip.isCancelled ? (
+                        <span className={`text-xs px-2.5 py-1 rounded-lg border font-medium ${
+                          isDark ? 'border-rose-900/60 bg-rose-950/30 text-rose-400' : 'border-rose-200 bg-rose-50 text-rose-700'
+                        }`}>
+                          ทริปยกเลิกแล้ว
+                        </span>
+                      ) : (
+                        <>
+                          {/* 1. ยื่นขอเบิกจ่าย */}
+                          {!m.isPaid && !m.isRequested && onRequestRelease && (
+                            <button
+                              onClick={() => openRequestModal(m)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold shadow-xs transition-colors"
+                            >
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                              <span>ยื่นขอเบิกเงิน</span>
+                            </button>
+                          )}
 
-                      {/* 2. โหวตอนุมัติ */}
-                      {m.isRequested && !m.isPaid && !isShortage && (
-                        <button
-                          onClick={() => onApproveMilestone(m.id)}
-                          disabled={m.approvedByMe}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                            m.approvedByMe
-                              ? isDark ? 'bg-[#292524] text-[#78716C] cursor-not-allowed border border-[#44403C]' : 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                              : 'bg-[#EA580C] hover:bg-[#C2410C] text-white shadow-xs'
-                          }`}
-                        >
-                          <Vote className="w-3.5 h-3.5" />
-                          <span>{m.approvedByMe ? 'คุณโหวตแล้ว' : 'โหวตอนุมัติ'}</span>
-                        </button>
-                      )}
+                          {/* 2. โหวตอนุมัติ */}
+                          {m.isRequested && !m.isPaid && !isShortage && onApproveMilestone && (
+                            <button
+                              onClick={() => onApproveMilestone(m.id)}
+                              disabled={m.approvedByMe}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                                m.approvedByMe
+                                  ? isDark ? 'bg-[#292524] text-[#78716C] cursor-not-allowed border border-[#44403C]' : 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                  : 'bg-[#EA580C] hover:bg-[#C2410C] text-white shadow-xs'
+                              }`}
+                            >
+                              <Vote className="w-3.5 h-3.5" />
+                              <span>{m.approvedByMe ? 'คุณโหวตแล้ว' : 'โหวตอนุมัติ'}</span>
+                            </button>
+                          )}
 
-                      {/* 3. ปุ่มเติมเงินถ้าเงินกองกลางขาด */}
-                      {m.isRequested && !m.isPaid && isShortage && (
-                        <button
-                          onClick={() => onOpenContribute(shortageAmount)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold shadow-xs transition-colors"
-                        >
-                          <span>เติมเงิน {shortageAmount} ETH</span>
-                        </button>
+                          {/* 3. ปุ่มเติมเงินถ้าเงินกองกลางขาด */}
+                          {m.isRequested && !m.isPaid && isShortage && onOpenContribute && (
+                            <button
+                              onClick={() => onOpenContribute(shortageAmount)}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold shadow-xs transition-colors"
+                            >
+                              <span>เติมเงิน {shortageAmount} ETH</span>
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
 
