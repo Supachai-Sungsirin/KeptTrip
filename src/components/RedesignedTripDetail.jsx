@@ -57,6 +57,7 @@ export default function RedesignedTripDetail({
   const activeMembers = (trip.members || []).filter(m => 
     m && m.address && !droppedOutList.includes(m.address.toLowerCase()) && !m.hasDroppedOut && m.status !== 'dropped'
   );
+  const members = activeMembers;
   const milestones = trip.milestones || [];
   const quorumPercent = 50;
   const totalMembers = activeMembers.length || trip.activeMembersCount || 1;
