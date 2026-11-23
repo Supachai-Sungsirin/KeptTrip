@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ethers } from 'ethers';
 import { Plus, X, Sparkles, AlertCircle } from 'lucide-react';
 
 export default function AddMilestoneModal({ isOpen, onClose, onAddMilestone, trip, theme = 'dark' }) {
@@ -33,10 +34,16 @@ export default function AddMilestoneModal({ isOpen, onClose, onAddMilestone, tri
       return;
     }
 
+    const trimmedRecipient = recipient.trim();
+    if (trimmedRecipient && !ethers.isAddress(trimmedRecipient)) {
+      setErrorMessage("ที่อยู่กระเป๋าผู้รับ (Recipient Address) ไม่ถูกต้องตามรูปแบบ Ethereum");
+      return;
+    }
+
     onAddMilestone({
       title: title.trim(),
       amount: amount.trim(),
-      recipient: recipient.trim() || trip.creator,
+      recipient: trimmedRecipient || trip.creator,
       expansionAmount: isExpandingBudget ? expansionAmount : 0
     });
 

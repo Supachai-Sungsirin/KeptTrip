@@ -11,16 +11,22 @@ export const Web3Provider = ({ children }) => {
   const [provider, setProvider] = useState(null);
   const [signer, setSigner] = useState(null);
   const [contract, setContract] = useState(null);
-  const [contractAddress, setContractAddress] = useState(DEFAULT_CONTRACT_ADDRESS);
-  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [contractAddress, setContractAddress] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kepttrip_contract_address');
+      if (saved && ethers.isAddress(saved)) return saved;
+    } catch {}
+    return DEFAULT_CONTRACT_ADDRESS;
+  });
+  const [isDemoMode, setIsDemoMode] = useState(() => {
+    try {
+      return localStorage.getItem('kepttrip_demo_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState(null);
-
-  useEffect(() => {
-    // ล้างค่า demo mode และ contract address เก่าในเครื่อง เพื่อบังคับใช้สัญญาที่ Deploy จริง
-    localStorage.removeItem('kepttrip_demo_mode');
-    localStorage.removeItem('kepttrip_contract_address');
-  }, []);
 
   const isSepolia = chainId === SEPOLIA_CHAIN_ID;
 

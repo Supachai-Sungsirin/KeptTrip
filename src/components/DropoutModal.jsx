@@ -231,6 +231,16 @@ export default function DropoutModal({
               </div>
             </div>
 
+            {/* Warning if no deposit */}
+            {myContributed <= 0 && (
+              <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs ${
+                isDark ? 'bg-amber-950/40 border-amber-800 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'
+              }`}>
+                <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+                <span>คุณยังไม่ได้โอนเงินสมทบเข้ากองกลาง จึงไม่มียอดเงินที่สามารถขอรับเงินคืนได้</span>
+              </div>
+            )}
+
             <div className="flex items-center gap-3 pt-2">
               <button
                 type="button"
@@ -244,9 +254,14 @@ export default function DropoutModal({
               <button
                 type="button"
                 onClick={handleDropoutSubmit}
-                className="w-1/2 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-xs transition-colors"
+                disabled={myContributed <= 0}
+                className={`w-1/2 py-2.5 rounded-xl font-semibold text-xs shadow-xs transition-colors ${
+                  myContributed <= 0
+                    ? isDark ? 'bg-[#292524] text-[#78716C] cursor-not-allowed border border-[#44403C]' : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white'
+                }`}
               >
-                ยืนยันถอนตัว & รับเงินคืน
+                {myContributed <= 0 ? 'ไม่มียอดเงินคืน' : 'ยืนยันถอนตัว & รับเงินคืน'}
               </button>
             </div>
           </div>

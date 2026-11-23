@@ -151,12 +151,18 @@ export default function CancelTripModal({
             <button
               type="button"
               onClick={() => {
+                if (myContributed <= 0 || trip.hasClaimedRefund) return;
                 onClaimRefund(myRefundShare);
                 onClose();
               }}
-              className="w-1/2 py-2.5 rounded-xl bg-[#10B981] hover:bg-emerald-600 text-white text-xs font-semibold shadow-xs transition-colors"
+              disabled={myContributed <= 0 || trip.hasClaimedRefund}
+              className={`w-1/2 py-2.5 rounded-xl text-xs font-semibold shadow-xs transition-colors ${
+                myContributed <= 0 || trip.hasClaimedRefund
+                  ? isDark ? 'bg-[#292524] text-[#78716C] cursor-not-allowed border border-[#44403C]' : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                  : 'bg-[#10B981] hover:bg-emerald-600 text-white'
+              }`}
             >
-              กดรับเงินคืน (+{myRefundShare} ETH)
+              {trip.hasClaimedRefund ? 'รับเงินคืนแล้ว' : myContributed <= 0 ? 'ไม่มียอดเงินคืน' : `กดรับเงินคืน (+${myRefundShare} ETH)`}
             </button>
           ) : (
             <button

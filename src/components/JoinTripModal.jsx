@@ -232,6 +232,14 @@ export default function JoinTripModal({
                 </button>
               </div>
 
+              {joinMode === 'free' && (
+                <div className={`p-2.5 rounded-xl border text-[11px] leading-relaxed mt-2 ${
+                  isDark ? 'bg-amber-950/20 border-amber-900/40 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'
+                }`}>
+                  ⚠️ <strong>คำแนะนำ:</strong> การเข้าร่วมแบบยังไม่โอนเงิน จะบันทึกสถานะรอยืนยันไว้ในเบราว์เซอร์นี้ เมื่อคุณโอนเงินสมทบผ่าน MetaMask ในภายหลัง ระบบจะบันทึก Address ของคุณลงบนบล็อกเชน Sepolia ให้เพื่อนทุกคนเห็นตรงกันทันที
+                </div>
+              )}
+
               {joinMode === 'deposit' && (
                 <div className={`p-3 rounded-xl border space-y-2 mt-2 ${
                   isDark ? 'bg-[#0C0A09] border-[#292524]' : 'bg-stone-50 border-stone-200'

@@ -1,5 +1,12 @@
 import React, { useState, useMemo } from 'react';
+import { ethers } from 'ethers';
 import { Layers, Plus, CheckCircle2, Clock, AlertTriangle, ExternalLink, Vote, ArrowUpRight, ShieldCheck, FileText, Search } from 'lucide-react';
+
+const isSafeUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim().toLowerCase();
+  return trimmed.startsWith('https://') || trimmed.startsWith('http://') || trimmed.startsWith('ipfs://');
+};
 
 export default function MilestoneList({
   trip,
@@ -16,6 +23,13 @@ export default function MilestoneList({
   const milestones = trip.milestones || [];
   const unspent = parseFloat(trip.unspentBalance || "0");
   const isCreator = currentAccount && trip.creator && trip.creator.toLowerCase() === currentAccount.toLowerCase();
+
+  // ตรวจสอบสิทธิ์การโหวตของผู้ใช้งานปัจจุบัน (ต้องมียอดสมทบเงินในสัญญาแล้วเท่านั้น)
+  const myMember = (trip.members || []).find(
+    m => currentAccount && m.address && m.address.toLowerCase() === currentAccount.toLowerCase()
+  );
+  const myContributed = myMember ? parseFloat(myMember.contributed || "0") : 0;
+  const canVote = myContributed > 0;
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,11 +74,23 @@ export default function MilestoneList({
   const handleConfirmRequest = (e) => {
     e.preventDefault();
     setRequestError('');
-    if (!proofInput.trim()) {
+    const trimmedProof = proofInput.trim();
+    const trimmedRecipient = recipientInput.trim();
+
+    if (!trimmedProof) {
       setRequestError("กรุณากรอกลิงก์หลักฐานใบเสร็จหรือใบจอง");
       return;
     }
-    onRequestRelease(requestModalData.id, proofInput.trim(), recipientInput.trim());
+    if (!isSafeUrl(trimmedProof)) {
+      setRequestError("ลิงก์หลักฐานต้องขึ้นต้นด้วย https:// หรือ http:// หรือ ipfs:// เท่านั้น");
+      return;
+    }
+    if (trimmedRecipient && !ethers.isAddress(trimmedRecipient)) {
+      setRequestError("ที่อยู่กระเป๋าผู้รับเงิน (Recipient) ไม่ถูกต้องตามรูปแบบ Ethereum Address");
+      return;
+    }
+
+    onRequestRelease(requestModalData.id, trimmedProof, trimmedRecipient);
     setRequestModalData(null);
   };
 
@@ -349,16 +375,20 @@ export default function MilestoneList({
                           {/* 2. โหวตอนุมัติ */}
                           {m.isRequested && !m.isPaid && !isShortage && onApproveMilestone && (
                             <button
-                              onClick={() => onApproveMilestone(m.id)}
-                              disabled={m.approvedByMe}
+                              onClick={() => {
+                                if (!canVote) return;
+                                onApproveMilestone(m.id);
+                              }}
+                              disabled={m.approvedByMe || !canVote}
+                              title={!canVote ? "ต้องโอนเงินสมทบกองกลางก่อนจึงจะมีสิทธิ์โหวตตามกฎสัญญา" : ""}
                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                                m.approvedByMe
+                                m.approvedByMe || !canVote
                                   ? isDark ? 'bg-[#292524] text-[#78716C] cursor-not-allowed border border-[#44403C]' : 'bg-stone-100 text-stone-400 cursor-not-allowed'
                                   : 'bg-[#EA580C] hover:bg-[#C2410C] text-white shadow-xs'
                               }`}
                             >
                               <Vote className="w-3.5 h-3.5" />
-                              <span>{m.approvedByMe ? 'คุณโหวตแล้ว' : 'โหวตอนุมัติ'}</span>
+                              <span>{m.approvedByMe ? 'คุณโหวตแล้ว' : !canVote ? 'รอสมทบเพื่อโหวต' : 'โหวตอนุมัติ'}</span>
                             </button>
                           )}
 
@@ -419,15 +449,19 @@ export default function MilestoneList({
               ) : null}
               <div className="hidden text-center p-6 text-sm text-stone-400">
                 <p>ไม่สามารถโหลดรูปภาพตัวอย่างได้โดยตรง</p>
-                <a
-                  href={selectedProof}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#EA580C] underline mt-2 inline-flex items-center gap-1.5 hover:underline font-semibold"
-                >
-                  <span>เปิดดูหลักฐานในแท็บใหม่</span>
-                  <ExternalLink className="w-4 h-4" />
-                </a>
+                {isSafeUrl(selectedProof) ? (
+                  <a
+                    href={selectedProof}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#EA580C] underline mt-2 inline-flex items-center gap-1.5 hover:underline font-semibold"
+                  >
+                    <span>เปิดดูหลักฐานในแท็บใหม่</span>
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                ) : (
+                  <p className="text-rose-500 text-xs mt-2">ลิงก์ไม่ปลอดภัย ไม่สามารถเปิดได้</p>
+                )}
               </div>
             </div>
 

@@ -126,6 +126,7 @@ export default function App() {
   const [isCancelTripOpen, setIsCancelTripOpen] = useState(false);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [isJoinOpen, setIsJoinOpen] = useState(false);
+  const [isSubmittingTx, setIsSubmittingTx] = useState(false);
   const [isInviteArrival, setIsInviteArrival] = useState(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -197,6 +198,31 @@ export default function App() {
     }
   }, [isInviteArrival, currentTrip, account]);
 
+  // Helper สำหรับดึง Event Logs แบบแบ่งช่วงบล็อก (Chunked) เพื่อไม่ให้เกินขีดจำกัด RPC (10,000 บล็อก) และไม่ทำข้อมูลเก่าสูญหาย
+  const queryFilterChunked = async (contractInstance, filter, fromBlock, toBlock, chunkSize = 7500) => {
+    let allLogs = [];
+    let start = fromBlock;
+    while (start <= toBlock) {
+      const end = Math.min(start + chunkSize - 1, toBlock);
+      try {
+        const logs = await contractInstance.queryFilter(filter, start, end);
+        allLogs = allLogs.concat(logs);
+      } catch (err) {
+        console.warn(`Query logs chunk ${start}-${end} failed, retrying with smaller window:`, err);
+        const mid = Math.floor((start + end) / 2);
+        try {
+          const l1 = await contractInstance.queryFilter(filter, start, mid);
+          const l2 = await contractInstance.queryFilter(filter, mid + 1, end);
+          allLogs = allLogs.concat(l1, l2);
+        } catch (e2) {
+          console.warn(`Query fallback chunk failed:`, e2);
+        }
+      }
+      start = end + 1;
+    }
+    return allLogs;
+  };
+
   // F-05: ดึงข้อมูลทริปและ Milestone จาก Smart Contract บนบล็อกเชน Sepolia
   const syncOnChainTrips = async () => {
     if (!contract || isDemoMode) return;
@@ -204,6 +230,29 @@ export default function App() {
       const countBig = await contract.tripCount();
       const count = Number(countBig);
       if (count === 0) return;
+
+      // ดึง Current Block Number ครั้งเดียว สำหรับใช้กับทุกทริป
+      let currentBlock = 0;
+      try {
+        const provider = contract.runner?.provider || contract.provider;
+        if (provider) {
+          currentBlock = await provider.getBlockNumber();
+        }
+      } catch (bErr) {
+        console.warn("Could not determine current block number:", bErr);
+      }
+
+      const deployBlock = CONTRACT_DEPLOY_BLOCK || 12188800;
+      const targetToBlock = currentBlock > 0 ? currentBlock : "latest";
+
+      // ดึงชื่อเล่นที่สมาชิกเคยตั้งไว้ในเครื่อง
+      const savedMemberNames = (() => {
+        try {
+          return JSON.parse(localStorage.getItem('kepttrip_member_names') || '{}');
+        } catch {
+          return {};
+        }
+      })();
 
       const loadedTrips = [];
       for (let i = 1; i <= count; i++) {
@@ -217,15 +266,15 @@ export default function App() {
           }
 
           const mCount = Number(summary.milestoneCount);
-          const loadedMilestones = [];
-          for (let m = 0; m < mCount; m++) {
+          // ดึง Milestones แบบขนาน (Promise.all) แทน Sequential Loop
+          const milestonePromises = Array.from({ length: mCount }, async (_, m) => {
             try {
               const mData = await contract.getMilestone(i, m);
               let approvedByMe = false;
               if (account) {
                 approvedByMe = await contract.hasApproved(i, m, account);
               }
-              loadedMilestones.push({
+              return {
                 id: m,
                 title: mData.title,
                 amount: ethers.formatEther(mData.amount),
@@ -238,34 +287,31 @@ export default function App() {
                 approvedByMe,
                 statusLabel: mData.isPaid ? "เบิกจ่ายแล้ว" : mData.isRequested ? "กำลังเปิดโหวต" : "Upcoming",
                 statusDetail: mData.isPaid ? "ผ่านการโหวตอนุมัติและจ่ายเงินแล้ว" : mData.isRequested ? `กำลังเปิดโหวต (${mData.approvalCount}/${mData.requiredVotes} เสียง)` : "รอส่งเอกสารขอเบิกจ่าย"
-              });
+              };
             } catch (mErr) {
               console.warn(`Failed to load milestone ${m} for trip ${i}:`, mErr);
+              return null;
             }
-          }
+          });
+          const loadedMilestones = (await Promise.all(milestonePromises)).filter(Boolean);
 
           let userContributed = "0.000";
           let userIsMember = false;
           let userHasVotedCancel = false;
           if (account) {
             try {
-              const userContribWei = await contract.getContribution(i, account);
+              const [userContribWei, isMem, hasVoted] = await Promise.all([
+                contract.getContribution(i, account),
+                contract.isMember(i, account),
+                contract.hasVotedCancel(i, account)
+              ]);
               userContributed = ethers.formatEther(userContribWei);
-              userIsMember = await contract.isMember(i, account);
-              userHasVotedCancel = await contract.hasVotedCancel(i, account);
+              userIsMember = isMem;
+              userHasVotedCancel = hasVoted;
             } catch (uErr) {
               console.warn("User status query err:", uErr);
             }
           }
-
-          // ดึงชื่อเล่นที่สมาชิกเคยตั้งไว้ในเครื่อง
-          const savedMemberNames = (() => {
-            try {
-              return JSON.parse(localStorage.getItem('kepttrip_member_names') || '{}');
-            } catch {
-              return {};
-            }
-          })();
 
           // Query Real On-Chain Events & Members from Sepolia Contract Logs
           const onChainEvents = [];
@@ -274,7 +320,7 @@ export default function App() {
 
           const creatorKey = summary.creator.toLowerCase();
           const creatorNickname = savedMemberNames[creatorKey];
-          // เพิ่ม Creator เป็นสมาชิกลำดับแรก
+          // เพิ่ม Creator เป็นสมาชิกแรก
           membersMap.set(creatorKey, {
             address: summary.creator,
             name: account && creatorKey === account.toLowerCase()
@@ -285,42 +331,16 @@ export default function App() {
           });
 
           try {
-            // คำนวณช่วงบล็อกที่ไม่เกิน 9,000 บล็อก เพื่อป้องกันข้อผิดพลาด RPC limit of 10000
-            let safeFromBlock = CONTRACT_DEPLOY_BLOCK || 12188800;
-            let safeToBlock = "latest";
-            try {
-              const provider = contract.runner?.provider || contract.provider;
-              if (provider) {
-                const currentBlock = await provider.getBlockNumber();
-                if (currentBlock > 0) {
-                  safeFromBlock = Math.max(CONTRACT_DEPLOY_BLOCK || 12188800, currentBlock - 9000);
-                  safeToBlock = currentBlock;
-                }
-              }
-            } catch (bErr) {
-              console.warn("Could not determine current block number:", bErr);
-            }
+            // ดึง Event logs ทั้ง 5 ประเภทพร้อมกันแบบขนาน และแบ่งช่วงบล็อกไม่เกิน 7,500 บล็อก
+            const [contribLogs, paidLogs, approvedLogs, dropoutLogs, cancelLogs] = await Promise.all([
+              queryFilterChunked(contract, contract.filters.FundsContributed(i), deployBlock, targetToBlock),
+              queryFilterChunked(contract, contract.filters.MilestonePaid(i), deployBlock, targetToBlock),
+              queryFilterChunked(contract, contract.filters.MilestoneApproved(i), deployBlock, targetToBlock),
+              queryFilterChunked(contract, contract.filters.MemberDroppedOut(i), deployBlock, targetToBlock),
+              queryFilterChunked(contract, contract.filters.TripCancelled(i), deployBlock, targetToBlock)
+            ]);
 
-            const safeQueryFilter = async (filter) => {
-              try {
-                return await contract.queryFilter(filter, safeFromBlock, safeToBlock);
-              } catch (err) {
-                console.warn("safeQueryFilter primary error:", err);
-                if (typeof safeToBlock === 'number') {
-                  try {
-                    return await contract.queryFilter(filter, Math.max(CONTRACT_DEPLOY_BLOCK || 12188800, safeToBlock - 3000), safeToBlock);
-                  } catch (e2) {
-                    console.warn("safeQueryFilter fallback error:", e2);
-                    return [];
-                  }
-                }
-                return [];
-              }
-            };
-
-            // 1. ดึงประวัติ FundsContributed (การสมทบเงินจริง)
-            const filterContrib = contract.filters.FundsContributed(i);
-            const contribLogs = await safeQueryFilter(filterContrib);
+            // 1. ประมวลผล FundsContributed
             for (const log of contribLogs) {
               const parsed = contract.interface.parseLog(log);
               const contributorAddr = parsed.args.contributor;
@@ -349,9 +369,7 @@ export default function App() {
               membersMap.set(key, { ...existing, contributed: newTot });
             }
 
-            // 2. ดึงประวัติ MilestonePaid (เบิกจ่ายจริง)
-            const filterPaid = contract.filters.MilestonePaid(i);
-            const paidLogs = await safeQueryFilter(filterPaid);
+            // 2. ประมวลผล MilestonePaid
             for (const log of paidLogs) {
               const parsed = contract.interface.parseLog(log);
               onChainEvents.push({
@@ -364,9 +382,7 @@ export default function App() {
               });
             }
 
-            // 3. ดึงประวัติ MilestoneApproved (โหวตอนุมัติ)
-            const filterApproved = contract.filters.MilestoneApproved(i);
-            const approvedLogs = await safeQueryFilter(filterApproved);
+            // 3. ประมวลผล MilestoneApproved
             for (const log of approvedLogs) {
               const parsed = contract.interface.parseLog(log);
               onChainEvents.push({
@@ -379,9 +395,7 @@ export default function App() {
               });
             }
 
-            // 4. ดึงประวัติ MemberDroppedOut (ถอนตัว)
-            const filterDropout = contract.filters.MemberDroppedOut(i);
-            const dropoutLogs = await safeQueryFilter(filterDropout);
+            // 4. ประมวลผล MemberDroppedOut
             for (const log of dropoutLogs) {
               const parsed = contract.interface.parseLog(log);
               onChainEvents.push({
@@ -397,9 +411,7 @@ export default function App() {
               membersMap.delete(droppedAddr);
             }
 
-            // 5. ดึงประวัติ TripCancelled (ยกเลิกทริป)
-            const filterCancel = contract.filters.TripCancelled(i);
-            const cancelLogs = await safeQueryFilter(filterCancel);
+            // 5. ประมวลผล TripCancelled
             for (const log of cancelLogs) {
               const parsed = contract.interface.parseLog(log);
               onChainEvents.push({
@@ -547,6 +559,7 @@ export default function App() {
 
   // 1. สร้างทริปใหม่
   const handleCreateTrip = async (data) => {
+    if (isSubmittingTx) return;
     if (!account) {
       showToast("กรุณาเชื่อมต่อกระเป๋า MetaMask ก่อนสร้างทริป", "error");
       return;
@@ -560,6 +573,7 @@ export default function App() {
     let realTxHash = null;
 
     try {
+      setIsSubmittingTx(true);
       showToast("กำลังส่งคำสั่งสร้างทริปไปยังบล็อกเชน Sepolia...", "info");
       const tx = await contract.createTrip(
         data.tripName,
@@ -613,6 +627,8 @@ export default function App() {
       console.error(err);
       showToast(err.reason || err.shortMessage || err.message || "เกิดข้อผิดพลาดในการสร้างทริป", "error");
       return;
+    } finally {
+      setIsSubmittingTx(false);
     }
 
     const newId = createdTripId || (trips.length > 0 ? Math.max(...trips.map(t => Number(t.id) || 0)) + 1 : 1);
@@ -773,6 +789,7 @@ export default function App() {
 
   // 3. สมทบเงิน
   const handleContribute = async (amount) => {
+    if (isSubmittingTx) return;
     if (!account) {
       showToast("กรุณาเชื่อมต่อกระเป๋า MetaMask เพื่อทำรายการ", "error");
       return;
@@ -784,6 +801,7 @@ export default function App() {
 
     let realTxHash = null;
     try {
+      setIsSubmittingTx(true);
       showToast("กำลังส่งธุรกรรมสมทบเงินไปยัง Sepolia...", "info");
       const tx = await contract.contribute(currentTrip.id, {
         value: ethers.parseEther(amount)
@@ -797,6 +815,8 @@ export default function App() {
       console.error(err);
       showToast(err.reason || err.shortMessage || err.message || "เกิดข้อผิดพลาดในการสมทบเงิน", "error");
       return;
+    } finally {
+      setIsSubmittingTx(false);
     }
 
     setTrips(prev => prev.map(t => {
@@ -900,10 +920,10 @@ export default function App() {
               ...m,
               isRequested: true,
               proofData: proof || "https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&q=80",
-              approvalCount: 1,
-              approvedByMe: true,
+              approvalCount: m.approvalCount || 0,
+              approvedByMe: false,
               statusLabel: "กำลังเปิดโหวต",
-              statusDetail: "กำลังเปิดโหวต (1 เสียงเห็นชอบ)"
+              statusDetail: `กำลังเปิดโหวต (${m.approvalCount || 0} เสียงเห็นชอบ)`
             };
           }
           return m;
@@ -933,6 +953,7 @@ export default function App() {
 
   // 5. โหวตอนุมัติ
   const handleApproveMilestone = async (mId) => {
+    if (isSubmittingTx) return;
     if (!account) {
       showToast("กรุณาเชื่อมต่อกระเป๋า MetaMask เพื่อทำรายการ", "error");
       return;
@@ -944,6 +965,7 @@ export default function App() {
 
     let realTxHash = null;
     try {
+      setIsSubmittingTx(true);
       showToast("กำลังส่งผลโหวตไปยังบล็อกเชน Sepolia...", "info");
       const tx = await contract.approveMilestone(currentTrip.id, mId);
       showToast(`ส่งธุรกรรมแล้ว (Tx: ${tx.hash.substring(0, 10)}...) รอการยืนยันบล็อก...`, "info");
@@ -954,6 +976,8 @@ export default function App() {
       console.error(err);
       showToast(err.reason || err.shortMessage || err.message || "เกิดข้อผิดพลาดในการโหวต", "error");
       return;
+    } finally {
+      setIsSubmittingTx(false);
     }
 
     setTrips(prev => prev.map(t => {
